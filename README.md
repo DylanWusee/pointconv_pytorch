@@ -33,7 +33,7 @@ python train_cls_conv.py
 
 To evaluate the model,
 ```
-python eval_cls_conv.py --pretrain 
+python eval_cls_conv.py --checkpoint /path/to/checkpoint 
 ```
 
 ## License
