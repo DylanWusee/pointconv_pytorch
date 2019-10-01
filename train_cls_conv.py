@@ -31,7 +31,6 @@ def main(args):
     '''HYPER PARAMETER'''
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     datapath = './data/ModelNet/'
-    ROTATION = (0, 360)
 
     '''CREATE DIR'''
     experiment_dir = Path('./experiment/')
@@ -61,10 +60,8 @@ def main(args):
     train_data, train_label, test_data, test_label = load_data(datapath, classification=True)
     logger.info("The number of training data is: %d",train_data.shape[0])
     logger.info("The number of test data is: %d", test_data.shape[0])
-    trainDataset = ModelNetDataLoader(train_data, train_label, rotation=ROTATION)
-    if ROTATION is not None:
-        print('The range of training rotation is',ROTATION)
-    testDataset = ModelNetDataLoader(test_data, test_label, rotation=ROTATION)
+    trainDataset = ModelNetDataLoader(train_data, train_label)
+    testDataset = ModelNetDataLoader(test_data, test_label)
     trainDataLoader = torch.utils.data.DataLoader(trainDataset, batch_size=args.batchsize, shuffle=True)
     testDataLoader = torch.utils.data.DataLoader(testDataset, batch_size=args.batchsize, shuffle=False)
 
