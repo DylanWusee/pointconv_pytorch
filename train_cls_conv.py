@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from tqdm import tqdm
 from utils.utils import test, save_checkpoint
-from model.pointconv import PointConvDensityClsSsg2 as PointConvClsSsg
+from model.pointconv import PointConvDensityClsSsg as PointConvClsSsg
 
 
 def parse_args():
