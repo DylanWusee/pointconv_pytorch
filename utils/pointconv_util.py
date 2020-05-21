@@ -367,8 +367,8 @@ class PointConvDensitySetAbstraction(nn.Module):
             new_points =  F.relu(bn(conv(new_points)))
 
         grouped_xyz = grouped_xyz_norm.permute(0, 3, 2, 1)
-        grouped_xyz = grouped_xyz * grouped_density.permute(0, 3, 2, 1)
         weights = self.weightnet(grouped_xyz)
+        new_points = new_points * grouped_density.permute(0, 3, 2, 1)
         new_points = torch.matmul(input=new_points.permute(0, 3, 1, 2), other = weights.permute(0, 3, 2, 1)).view(B, self.npoint, -1)
         new_points = self.linear(new_points)
         new_points = self.bn_linear(new_points.permute(0, 2, 1))
