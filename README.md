@@ -24,16 +24,16 @@ The code has been tested with Python 3.5, pytorch 1.2, CUDA 10.0 and cuDNN 7.6 o
 ## Usage
 ### ModelNet40 Classification
 
-Download the ModelNet40 dataset from [here](https://shapenet.cs.stanford.edu/media/modelnet40_ply_hdf5_2048.zip). This dataset is the same one used in [PointNet](https://arxiv.org/abs/1612.00593), thanks to [Charles Qi](https://github.com/charlesq34/pointnet). Copy the unziped dataset to ```./data/ModelNet```.
+Download the ModelNet40 dataset from [here](https://shapenet.cs.stanford.edu/media/modelnet40_normal_resampled.zip). This dataset is the same one used in [PointNet](https://arxiv.org/abs/1612.00593), thanks to [Charles Qi](https://github.com/charlesq34/pointnet). Copy the unziped dataset to ```./data/modelnet40_normal_resampled```.
 
 To train the model,
 ```
-python train_cls_conv.py
+python train_cls_conv.py --model pointconv_modelnet40 --normal
 ```
 
 To evaluate the model,
 ```
-python eval_cls_conv.py --checkpoint /path/to/checkpoint 
+python eval_cls_conv.py --checkpoint ./checkpoints/checkpoint.pth --normal
 ```
 
 ## License

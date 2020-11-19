@@ -6,7 +6,7 @@ import torch
 import torch.nn.parallel
 import torch.utils.data
 import torch.nn.functional as F
-from data_utils.ModelNetDataLoader import ModelNetDataLoader, load_data
+from data_utils.ModelNetDataLoader import ModelNetDataLoader
 import datetime
 import logging
 from pathlib import Path
@@ -18,22 +18,23 @@ from model.pointconv import PointConvDensityClsSsg as PointConvClsSsg
 def parse_args():
     '''PARAMETERS'''
     parser = argparse.ArgumentParser('PointConv')
-    parser.add_argument('--batchsize', type=int, default=16, help='batch size')
+    parser.add_argument('--batchsize', type=int, default=32, help='batch size')
     parser.add_argument('--gpu', type=str, default='0', help='specify gpu device')
     parser.add_argument('--checkpoint', type=str, default=None, help='checkpoint')
-    parser.add_argument('--num_view', type=int, default=3, help='num of view')
+    parser.add_argument('--num_point', type=int, default=1024, help='Point Number [default: 1024]')
+    parser.add_argument('--num_workers', type=int, default=16, help='Worker Number [default: 16]')
     parser.add_argument('--model_name', default='pointconv', help='model name')
+    parser.add_argument('--normal', action='store_true', default=False, help='Whether to use normal information [default: False]')
     return parser.parse_args()
 
 def main(args):
     '''HYPER PARAMETER'''
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    datapath = './data/ModelNet/'
 
     '''CREATE DIR'''
     experiment_dir = Path('./eval_experiment/')
     experiment_dir.mkdir(exist_ok=True)
-    file_dir = Path(str(experiment_dir) + '/%sModelNet40-'%args.model_name + str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M')))
+    file_dir = Path(str(experiment_dir) + '/%s_ModelNet40-'%args.model_name + str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M')))
     file_dir.mkdir(exist_ok=True)
     checkpoints_dir = file_dir.joinpath('checkpoints/')
     checkpoints_dir.mkdir(exist_ok=True)
@@ -56,12 +57,16 @@ def main(args):
 
     '''DATA LOADING'''
     logger.info('Load dataset ...')
-    train_data, train_label, test_data, test_label = load_data(datapath, classification=True)
-    logger.info("The number of training data is: %d",train_data.shape[0])
-    logger.info("The number of test data is: %d", test_data.shape[0])
-    testDataset = ModelNetDataLoader(test_data, test_label)
-    testDataLoader = torch.utils.data.DataLoader(testDataset, batch_size=args.batchsize, shuffle=False)
-    
+    DATA_PATH = './data/modelnet40_normal_resampled/'
+
+    TEST_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='test', normal_channel=args.normal)
+    testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=args.batchsize, shuffle=False, num_workers=args.num_workers)
+    logger.info("The number of test data is: %d", len(TEST_DATASET))
+
+    seed = 3
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
     '''MODEL LOADING'''
     num_class = 40
@@ -83,58 +88,26 @@ def main(args):
     logger.info('Start evaluating...')
     print('Start evaluating...')
 
-    total_correct = 0
-    total_seen = 0
+    classifier = classifier.eval()
+    mean_correct = []
     for batch_id, data in tqdm(enumerate(testDataLoader, 0), total=len(testDataLoader), smoothing=0.9):
         pointcloud, target = data
         target = target[:, 0]
-        #import ipdb; ipdb.set_trace()
-        pred_view = torch.zeros(pointcloud.shape[0], num_class).cuda()
 
-        for _ in range(args.num_view):
-            pointcloud = generate_new_view(pointcloud)
-            #import ipdb; ipdb.set_trace()
-            #points = torch.from_numpy(pointcloud).permute(0, 2, 1)
-            points = pointcloud.permute(0, 2, 1)
-            points, target = points.cuda(), target.cuda()
-            classifier = classifier.eval()
-            with torch.no_grad():
-                pred = classifier(points)
-            pred_view += pred
-        pred_choice = pred_view.data.max(1)[1]
+        points = pointcloud.permute(0, 2, 1)
+        points, target = points.cuda(), target.cuda()
+        with torch.no_grad():
+            pred = classifier(points[:, :3, :], points[:, 3:, :])
+        pred_choice = pred.data.max(1)[1]
         correct = pred_choice.eq(target.long().data).cpu().sum()
-        total_correct += correct.item()
-        total_seen += float(points.size()[0])
 
-    accuracy = total_correct / total_seen
+        mean_correct.append(correct.item()/float(points.size()[0]))
+
+    accuracy = np.mean(mean_correct)
     print('Total Accuracy: %f'%accuracy)
 
     logger.info('Total Accuracy: %f'%accuracy)
     logger.info('End of evaluation...')
-
-def generate_new_view(points):
-    points_idx = np.arange(points.shape[1])
-    np.random.shuffle(points_idx)
-
-    points = points[:, points_idx, :]
-    return points
-
-
-def rotate_point_cloud_by_angle(data, rotation_angle):
-    """
-    Rotate the point cloud along up direction with certain angle.
-    :param batch_data: Nx3 array, original batch of point clouds
-    :param rotation_angle: range of rotation
-    :return:  Nx3 array, rotated batch of point clouds
-    """
-    cosval = np.cos(rotation_angle)
-    sinval = np.sin(rotation_angle)
-    rotation_matrix = np.array([[cosval, 0, sinval],
-                                [0, 1, 0],
-                                [-sinval, 0, cosval]], dtype=np.float32)
-    rotated_data = np.dot(data, rotation_matrix)
-
-    return rotated_data
 
 if __name__ == '__main__':
     args = parse_args()

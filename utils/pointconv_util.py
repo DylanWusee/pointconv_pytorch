@@ -70,7 +70,8 @@ def farthest_point_sample(xyz, npoint):
     B, N, C = xyz.shape
     centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
     distance = torch.ones(B, N).to(device) * 1e10
-    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+    #farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+    farthest = torch.zeros(B, dtype=torch.long).to(device)
     batch_indices = torch.arange(B, dtype=torch.long).to(device)
     for i in range(npoint):
         centroids[:, i] = farthest
@@ -208,27 +209,25 @@ def compute_density(xyz, bandwidth):
     return xyz_density
 
 class DensityNet(nn.Module):
-    def __init__(self, hidden_unit = [8, 8]):
+    def __init__(self, hidden_unit = [16, 8]):
         super(DensityNet, self).__init__()
         self.mlp_convs = nn.ModuleList()
         self.mlp_bns = nn.ModuleList() 
 
-        self.mlp_convs.append(nn.Conv1d(1, hidden_unit[0], 1))
-        self.mlp_bns.append(nn.BatchNorm1d(hidden_unit[0]))
+        self.mlp_convs.append(nn.Conv2d(1, hidden_unit[0], 1))
+        self.mlp_bns.append(nn.BatchNorm2d(hidden_unit[0]))
         for i in range(1, len(hidden_unit)):
-            self.mlp_convs.append(nn.Conv1d(hidden_unit[i - 1], hidden_unit[i], 1))
-            self.mlp_bns.append(nn.BatchNorm1d(hidden_unit[i]))
-        self.mlp_convs.append(nn.Conv1d(hidden_unit[-1], 1, 1))
-        self.mlp_bns.append(nn.BatchNorm1d(1))
+            self.mlp_convs.append(nn.Conv2d(hidden_unit[i - 1], hidden_unit[i], 1))
+            self.mlp_bns.append(nn.BatchNorm2d(hidden_unit[i]))
+        self.mlp_convs.append(nn.Conv2d(hidden_unit[-1], 1, 1))
+        self.mlp_bns.append(nn.BatchNorm2d(1))
 
-    def forward(self, xyz_density):
-        B, N = xyz_density.shape 
-        density_scale = xyz_density.unsqueeze(1)
+    def forward(self, density_scale):
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
             density_scale =  bn(conv(density_scale))
             if i == len(self.mlp_convs):
-                density_scale = F.sigmoid(density_scale) + 0.5
+                density_scale = F.sigmoid(density_scale)
             else:
                 density_scale = F.relu(density_scale)
         
@@ -352,13 +351,12 @@ class PointConvDensitySetAbstraction(nn.Module):
             points = points.permute(0, 2, 1)
 
         xyz_density = compute_density(xyz, self.bandwidth)
-        #import ipdb; ipdb.set_trace()
-        density_scale = self.densitynet(xyz_density)
+        inverse_density = 1.0 / xyz_density 
 
         if self.group_all:
-            new_xyz, new_points, grouped_xyz_norm, grouped_density = sample_and_group_all(xyz, points, density_scale.view(B, N, 1))
+            new_xyz, new_points, grouped_xyz_norm, grouped_density = sample_and_group_all(xyz, points, inverse_density.view(B, N, 1))
         else:
-            new_xyz, new_points, grouped_xyz_norm, _, grouped_density = sample_and_group(self.npoint, self.nsample, xyz, points, density_scale.view(B, N, 1))
+            new_xyz, new_points, grouped_xyz_norm, _, grouped_density = sample_and_group(self.npoint, self.nsample, xyz, points, inverse_density.view(B, N, 1))
         # new_xyz: sampled points position data, [B, npoint, C]
         # new_points: sampled points data, [B, npoint, nsample, C+D]
         new_points = new_points.permute(0, 3, 2, 1) # [B, C+D, nsample,npoint]
@@ -366,9 +364,13 @@ class PointConvDensitySetAbstraction(nn.Module):
             bn = self.mlp_bns[i]
             new_points =  F.relu(bn(conv(new_points)))
 
+        inverse_max_density = grouped_density.max(dim = 2, keepdim=True)[0]
+        density_scale = grouped_density / inverse_max_density
+        density_scale = self.densitynet(density_scale.permute(0, 3, 2, 1))
+        new_points = new_points * density_scale
+
         grouped_xyz = grouped_xyz_norm.permute(0, 3, 2, 1)
-        weights = self.weightnet(grouped_xyz)
-        new_points = new_points * grouped_density.permute(0, 3, 2, 1)
+        weights = self.weightnet(grouped_xyz)     
         new_points = torch.matmul(input=new_points.permute(0, 3, 1, 2), other = weights.permute(0, 3, 2, 1)).view(B, self.npoint, -1)
         new_points = self.linear(new_points)
         new_points = self.bn_linear(new_points.permute(0, 2, 1))
@@ -376,3 +378,5 @@ class PointConvDensitySetAbstraction(nn.Module):
         new_xyz = new_xyz.permute(0, 2, 1)
 
         return new_xyz, new_points
+
+        

@@ -43,7 +43,8 @@ def save_checkpoint(epoch, train_accuracy, test_accuracy, model, optimizer, path
     torch.save(state, savepath)
 
 def test(model, loader):
-    mean_correct = []
+    total_correct = 0.0
+    total_seen = 0.0
     for j, data in enumerate(loader, 0):
         points, target = data
         target = target[:, 0]
@@ -51,11 +52,14 @@ def test(model, loader):
         points, target = points.cuda(), target.cuda()
         classifier = model.eval()
         with torch.no_grad():
-            pred = classifier(points)
+            pred = classifier(points[:, :3, :], points[:, 3:, :])
         pred_choice = pred.data.max(1)[1]
         correct = pred_choice.eq(target.long().data).cpu().sum()
-        mean_correct.append(correct.item()/float(points.size()[0]))
-    return np.mean(mean_correct)
+        total_correct += correct.item()
+        total_seen += float(points.size()[0])
+
+    accuracy = total_correct / total_seen
+    return accuracy
 
 def compute_cat_iou(pred,target,iou_tabel):
     iou_list = []
